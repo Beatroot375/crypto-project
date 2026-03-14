@@ -1,0 +1,21 @@
+# Example collector configuration (documentational; not auto-loaded)
+
+data_dir = "data/l2"
+symbols = ["BTCUSDT", "ETHUSDT"]
+depth = 1000
+levels = 200
+snapshot_ms = 100
+status_sec = 30
+
+# Optional: aggTrade enrichment
+aggtrades = true
+agg_window_sec = 1.0
+agg_maxlen = 200000
+
+# Optional: online learning
+online = false
+online_horizon_sec = 1
+score_threshold = 0.15
+checkpoint_sec = 60
+model_dir = "models"
+

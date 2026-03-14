@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-crypto-portfolio"
+version = "0.1.0"
+description = "Binance L2 collector + streaming ETL + optional online learning"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+binance = ["python-binance>=1.0.19"]
+online = ["scikit-learn>=1.3", "joblib>=1.3"]
+etl = []
+eval = ["scikit-learn>=1.3"]
+viz = ["matplotlib>=3.8"]
+dashboard = ["streamlit>=1.33", "pandas>=2.0"]
+train = ["pandas>=2.0", "tqdm>=4.66", "joblib>=1.3", "lightgbm", "xgboost", "catboost"]
+dev = ["ruff>=0.4"]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+qcp = "quant_crypto_portfolio.cli:main"
+qcp-dashboard = "quant_crypto_portfolio.dashboard:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+test = ["pytest>=7.0"]

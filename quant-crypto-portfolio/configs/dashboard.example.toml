@@ -1,0 +1,20 @@
+# Example dashboard settings (documentational; configure via the sidebar in-app)
+
+data_dir = "data/l2"
+symbol = "BTCUSDT"
+from_day = ""
+to_day = ""
+max_rows = 200000
+stride = 10
+
+# Offline eval controls
+horizon_sec = 60
+ret_threshold = 0.00015
+score_threshold = 0.15
+test_frac = 0.2
+
+# Drift controls
+baseline_rows = 50000
+recent_rows = 50000
+psi_threshold = 0.2
+
