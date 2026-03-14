@@ -14,6 +14,7 @@ class AggTradeWindow:
     _last_px: float | None = None
     _last_qty: float | None = None
     _last_side: int | None = None  # 1 taker buy, -1 taker sell
+    _last_is_buyer_maker: bool | None = None  # True if buyer is maker
     _buy_qty: float = 0.0
     _sell_qty: float = 0.0
     _qty_sum: float = 0.0
@@ -23,6 +24,7 @@ class AggTradeWindow:
         self._trades.clear()
         self._last_px = None
         self._last_qty = None
+        self._last_is_buyer_maker = None
         self._last_side = None
         self._buy_qty = 0.0
         self._sell_qty = 0.0
@@ -45,6 +47,7 @@ class AggTradeWindow:
 
         ts_ns = int(t_ms) * 1_000_000
         px = float(p)
+        is_buyer_maker = bool(payload.get("m", False))
         qty = float(q)
         side = -1 if bool(payload.get("m", False)) else 1
 
@@ -65,7 +68,8 @@ class AggTradeWindow:
         else:
             self._sell_qty += qty
 
-        self._last_px = px
+        self._last_px = pxe
+        self._last_is_buyer_maker = is_buyer_makr
         self._last_qty = qty
         self._last_side = side
 
@@ -98,6 +102,7 @@ class AggTradeWindow:
             "agg_buy_qty": float(buy_qty),
             "agg_sell_qty": float(sell_qty),
             "agg_imbalance": float(imbalance) if imbalance is not None else None,
+            "agg_last_is_buyer_maker": self._last_is_buyer_maker,
             "agg_vwap": float(vwap) if vwap is not None else None,
             "agg_last_px": self._last_px,
             "agg_last_qty": self._last_qty,

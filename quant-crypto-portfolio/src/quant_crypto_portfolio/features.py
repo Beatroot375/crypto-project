@@ -14,6 +14,7 @@ FEATURE_NAMES = [
     "microprice_dev_bps",
     "book_pressure",
     "depth_slope",
+    "is_buyer_maker",
 ]
 
 
@@ -66,6 +67,9 @@ def snapshot_to_feature_vector(snapshot: dict[str, Any], depth: int = 200) -> np
     ask_vwap = float((apx * asz).sum() / (asz.sum() + 1e-12))
     depth_slope = (mid - bid_vwap) - (ask_vwap - mid)
 
+    is_buyer_maker = g("agg_last_is_buyer_maker", False)
+    is_buyer_maker_float = 1.0 if is_buyer_maker else 0.0
+
     return np.array(
         [
             spread_bps,
@@ -76,6 +80,7 @@ def snapshot_to_feature_vector(snapshot: dict[str, Any], depth: int = 200) -> np
             microprice_dev_bps,
             book_pressure,
             depth_slope,
+            is_buyer_maker_float,
         ],
         dtype=float,
     )

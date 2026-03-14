@@ -34,7 +34,7 @@ async def collect_binance_depth_ws(
     snapshot_interval_ms: int = 100,
     levels: int = 200,
     status_interval_sec: int = 30,
-    aggtrades: bool = False,
+    aggtrades: bool = True,
     agg_window_sec: float = 1.0,
     agg_maxlen: int = 200_000,
     max_consecutive_errors: int = 20,
