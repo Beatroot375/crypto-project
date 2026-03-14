@@ -13,8 +13,36 @@ dist/
 build/
 *.egg-info/
 
-# Runtime outputs
-data/
-models/
-reports/
+# Virtual environments
+venv/
+Nautilusvenv/
+.venv/
 
+# Data files (too large for git)
+data/
+*.jsonl
+*.jsonl.gz
+*.parquet
+
+# Reports and outputs
+reports/
+output/
+
+# Other repositories (separate projects)
+dashboard/
+demo-dtcc-trade-reop/
+nautilus_trader/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/settings.json
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
