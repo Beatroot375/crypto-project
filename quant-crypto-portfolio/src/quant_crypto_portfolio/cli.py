@@ -278,10 +278,17 @@ def main() -> None:
             max_rows=args.max_rows,
             stride=args.stride,
             signal_field=str(args.signal_field),
-            pred_class_field=None,
+            pred_class_field="online_pred_class",
         )
         if ds.raw_signals is None:
-            raise SystemExit(f"Signal field not found in data: {args.signal_field}")
+            if ds.raw_pred_class is not None:
+                # Map pred_class to signal-like values: 0-> -1, 1->0, 2->1
+                pred_class = ds.raw_pred_class.astype(int, copy=False)
+                signal_like = np.where(pred_class == 2, 1, np.where(pred_class == 0, -1, 0))
+                ds.raw_signals = signal_like
+                log.warning("Using online_pred_class as proxy for signal (mapped 0->-1, 1->0, 2->1)")
+            else:
+                raise SystemExit(f"Signal field not found in data: {args.signal_field}, and no online_pred_class available")
         pos = positions_from_signal(ds.raw_signals)
         title = args.title or f"{args.symbol.upper()} ({args.signal_field})"
         res = plot_signals(ds.ts_ns, ds.mid, pos, out_path=args.out, title=title)

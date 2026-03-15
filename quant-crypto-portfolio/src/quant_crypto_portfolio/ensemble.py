@@ -45,9 +45,13 @@ def prepare_ensemble_data(data_dir: Path, horizon_sec: int = 60, symbol: str | N
             continue
         pattern = f"*_{symbol_lc}_l2.jsonl.gz" if symbol_lc else "*_l2.jsonl.gz"
         for f in sorted(day_dir.glob(pattern)):
-            with gzip.open(f, "rt", encoding="utf-8") as fh:
-                day_df = pd.read_json(fh, lines=True)
-            dfs.append(day_df)
+            try:
+                with gzip.open(f, "rt", encoding="utf-8") as fh:
+                    day_df = pd.read_json(fh, lines=True)
+                dfs.append(day_df)
+            except Exception as e:
+                log.warning(f"Skipping corrupted file {f}: {e}")
+                continue
 
     if not dfs:
         raise RuntimeError("No data found to train on")
@@ -71,6 +75,7 @@ def prepare_ensemble_data(data_dir: Path, horizon_sec: int = 60, symbol: str | N
             "microprice_dev_bps",
             "book_pressure",
             "depth_slope",
+            "is_buyer_maker",
         ],
     )
 

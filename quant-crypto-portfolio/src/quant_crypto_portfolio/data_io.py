@@ -75,9 +75,10 @@ def iter_snapshots(
             while True:
                 try:
                     line = f.readline()
-                except EOFError as e:
+                except Exception as e:
                     # Common when reading a gzip file that is still being written (no footer yet),
                     # or when the last gzip member is truncated after an unclean shutdown.
+                    # Also catch zlib.error for corrupted files.
                     if not allow_truncated:
                         raise TruncatedGzipError(f"Truncated gzip stream: {path}") from e
                     key = str(path)
