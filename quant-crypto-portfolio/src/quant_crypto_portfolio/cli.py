@@ -24,7 +24,7 @@ DEFAULT_DATA_DIR = Path("data/l2")
 
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(prog="qcp", description="Quant Crypto Portfolio (L2)")
-    parser.add_argument("--log-level", default="INFO")
+    parser.add_argument("--log-level", default="DEBUG")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_collect = sub.add_parser("collect", help="Collect Binance L2 via WebSocket")
@@ -46,7 +46,7 @@ def build_parser() -> ArgumentParser:
     p_collect.add_argument("--status-sec", type=int, default=30, help="Heartbeat log interval")
     p_collect.add_argument(
         "--aggtrades",
-        action="store_true",
+        default=True,
         help="Also subscribe to aggTrade streams",
     )
     p_collect.add_argument(

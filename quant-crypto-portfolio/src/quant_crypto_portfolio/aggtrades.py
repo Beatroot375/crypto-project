@@ -68,8 +68,8 @@ class AggTradeWindow:
         else:
             self._sell_qty += qty
 
-        self._last_px = pxe
-        self._last_is_buyer_maker = is_buyer_makr
+        self._last_px = px
+        self._last_is_buyer_maker = is_buyer_maker
         self._last_qty = qty
         self._last_side = side
 
