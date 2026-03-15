@@ -24,7 +24,7 @@ DEFAULT_DATA_DIR = Path("data/l2")
 
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(prog="qcp", description="Quant Crypto Portfolio (L2)")
-    parser.add_argument("--log-level", default="DEBUG")
+    parser.add_argument("--log-level", default="INFO")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     p_collect = sub.add_parser("collect", help="Collect Binance L2 via WebSocket")
@@ -39,7 +39,7 @@ def build_parser() -> ArgumentParser:
     p_collect.add_argument(
         "--levels",
         type=int,
-        default=200,
+        default=20,
         help="Levels to store per side in each snapshot",
     )
     p_collect.add_argument("--snapshot-ms", type=int, default=100)
@@ -52,7 +52,7 @@ def build_parser() -> ArgumentParser:
     p_collect.add_argument(
         "--agg-window-sec",
         type=float,
-        default=1.0,
+        default=0.1,
         help="Rolling aggTrade window length (seconds)",
     )
     p_collect.add_argument(
@@ -62,6 +62,7 @@ def build_parser() -> ArgumentParser:
         help="Max aggTrades kept per symbol",
     )
     p_collect.add_argument("--online", action="store_true")
+    p_collect.add_argument("--online-eval", action="store_true", help="Enable rolling evaluation metrics for online model")
     p_collect.add_argument("--online-horizon-sec", type=int, default=1)
     p_collect.add_argument("--score-threshold", type=float, default=0.15)
     p_collect.add_argument("--checkpoint-sec", type=int, default=60)
@@ -138,6 +139,7 @@ def main() -> None:
                 score_threshold=args.score_threshold,
                 checkpoint_sec=args.checkpoint_sec,
                 model_dir=args.model_dir,
+                online_eval=args.online_eval,
             )
         )
         return

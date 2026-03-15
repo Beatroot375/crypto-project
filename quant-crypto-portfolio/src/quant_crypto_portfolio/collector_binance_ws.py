@@ -4,6 +4,19 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from pathlib import Path
+import math
+import numpy as np
+from collections import defaultdict
+from datetime import datetime
+
+log = logging.getLogger(__name__)
+
+# Separate logger for predictions
+pred_log = logging.getLogger('predictions')
+pred_log.setLevel(logging.INFO)
+pred_handler = logging.FileHandler('predictions.log')
+pred_handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
+pred_log.addHandler(pred_handler)
 
 from .aggtrades import AggTradeWindow
 from .features import snapshot_to_feature_vector
@@ -43,6 +56,7 @@ async def collect_binance_depth_ws(
     score_threshold: float = 0.15,
     checkpoint_sec: int = 60,
     model_dir: Path = Path("models"),
+    online_eval: bool = False,
 ) -> None:
     try:
         from binance import AsyncClient, BinanceSocketManager
@@ -69,15 +83,31 @@ async def collect_binance_depth_ws(
     ws_aggtrade_count = 0
     snapshot_count = 0
 
-    agg_windows: dict[str, AggTradeWindow] = {}
+    eval_total: dict[str, int] = {}
+    eval_correct: dict[str, int] = {}
+    last_mid: dict[str, float] = {}
+    agg_windows = {}
+    # Hourly aggregation
+    hourly_features_first: defaultdict[str, list[list[float]]] = defaultdict(list)
+    hourly_features_last: defaultdict[str, list[list[float]]] = defaultdict(list)
+    hourly_predictions: defaultdict[str, list[int]] = defaultdict(list)
+    hourly_true_classes: defaultdict[str, list[int]] = defaultdict(list)
+    current_hour: str = ""
     if aggtrades:
         window_ns = int(float(agg_window_sec) * 1_000_000_000)
         for sym in sym_list:
             agg_windows[sym] = AggTradeWindow(window_ns=window_ns, maxlen=int(agg_maxlen))
 
-    online_models: dict[str, OnlineL2Model] = {}
-    last_checkpoint = asyncio.get_running_loop().time()
-    last_status = asyncio.get_running_loop().time()
+    if online_eval:
+        for sym in sym_list:
+            eval_total[sym] = 0
+            eval_correct[sym] = 0
+            last_mid[sym] = float('nan')
+
+    online_models = {}
+
+    client = await AsyncClient.create()
+    bm = BinanceSocketManager(client)
 
     if online_learning:
         model_dir.mkdir(parents=True, exist_ok=True)
@@ -97,22 +127,10 @@ async def collect_binance_depth_ws(
             else:
                 online_models[sym] = OnlineL2Model(horizon_sec=online_horizon_sec)
 
-    client = await AsyncClient.create()
-    bm = BinanceSocketManager(client)
+    last_checkpoint = 0.0
+    last_status = 0.0
 
-    async def checkpoint_models(force: bool = False) -> None:
-        nonlocal last_checkpoint
-        if not online_learning:
-            return
-        now = asyncio.get_running_loop().time()
-        if not force and (now - last_checkpoint) < float(checkpoint_sec):
-            return
-        for sym, model in online_models.items():
-            path = model_dir / f"{sym.lower()}_online_l2.pkl"
-            joblib.dump(model.to_state(), path)
-        last_checkpoint = now
-
-    async def ws_loop() -> None:
+    async def ws_loop(bm: BinanceSocketManager, client: AsyncClient) -> None:
         nonlocal ws_aggtrade_count, ws_depthupdate_count
         listen_keys: list[str] = []
         for sym in sym_list:
@@ -183,8 +201,9 @@ async def collect_binance_depth_ws(
                 await asyncio.sleep(delay)
 
     async def snapshot_loop() -> None:
-        nonlocal snapshot_count, last_status
+        nonlocal snapshot_count, last_status, current_hour
         interval = max(1, int(snapshot_interval_ms)) / 1000.0
+        last_snap = None
         while True:
             await asyncio.sleep(interval)
             snaps = books.get_all_snapshots(levels=levels)
@@ -192,6 +211,10 @@ async def collect_binance_depth_ws(
                 sym = str(snap.get("symbol", "")).upper()
                 if not sym:
                     continue
+
+                # Initialize current_hour on first snapshot
+                if current_hour == "":
+                    current_hour = datetime.fromtimestamp(snap["ts_ns"] / 1_000_000_000).strftime("%Y-%m-%d-%H")
 
                 if aggtrades and sym in agg_windows:
                     snap.update(agg_windows[sym].stats(int(snap["ts_ns"])))
@@ -210,8 +233,21 @@ async def collect_binance_depth_ws(
                     snap["online_pred_class"] = int(pred_class)
                     snap["online_signal"] = int(signal)
 
+                    # Accumulate hourly data
+                    hourly_features_first[sym].append(x[:5].tolist())
+                    hourly_features_last[sym].append(x[-5:].tolist())
+                    hourly_predictions[sym].append(pred_class)
+                    if online_eval and sym in eval_total and not math.isnan(last_mid[sym]):
+                        true_change = 1 if snap["mid"] > last_mid[sym] else (-1 if snap["mid"] < last_mid[sym] else 0)
+                        hourly_true_classes[sym].append(true_change)
+                        eval_total[sym] += 1
+                        if true_change == pred_class:
+                            eval_correct[sym] += 1
+                    last_mid[sym] = snap["mid"]
+
                 writer.write(sym, int(snap["ts_ns"]), snap)
                 snapshot_count += 1
+                last_snap = snap  # Update last_snap
 
             writer.maybe_flush()
             await checkpoint_models()
@@ -245,10 +281,72 @@ async def collect_binance_depth_ws(
                         book.best_ask,
                         book.mid,
                     )
+                    if online_eval and sym in eval_total and eval_total[sym] > 0:
+                        accuracy = 100.0 * eval_correct[sym] / eval_total[sym]
+                        log.info(
+                            "Eval %s | total=%d correct=%d accuracy=%.2f%% | last_true=%.2f last_pred=%d",
+                            sym,
+                            eval_total[sym],
+                            eval_correct[sym],
+                            accuracy,
+                            last_mid[sym],
+                            last_snap["online_pred_class"] if last_snap and "online_pred_class" in last_snap else 0,
+                        )
+
+                # Check for hour change and log summary (moved here from per-snapshot to status interval)
+                if last_snap:
+                    current_ts = datetime.fromtimestamp(last_snap["ts_ns"] / 1_000_000_000)
+                    new_hour = current_ts.strftime("%Y-%m-%d-%H")
+                    if new_hour != current_hour and current_hour != "":
+                        for sym in sym_list:
+                            if sym in hourly_features_first and hourly_features_first[sym]:
+                                # Compute feature stats
+                                first_arrays = np.array(hourly_features_first[sym])
+                                last_arrays = np.array(hourly_features_last[sym])
+                                first_mean = np.mean(first_arrays, axis=0).tolist()
+                                first_std = np.std(first_arrays, axis=0).tolist()
+                                first_min = np.min(first_arrays, axis=0).tolist()
+                                first_max = np.max(first_arrays, axis=0).tolist()
+                                last_mean = np.mean(last_arrays, axis=0).tolist()
+                                last_std = np.std(last_arrays, axis=0).tolist()
+                                last_min = np.min(last_arrays, axis=0).tolist()
+                                last_max = np.max(last_arrays, axis=0).tolist()
+
+                                # Compute prediction stats
+                                pred_total = len(hourly_predictions[sym])
+                                pred_correct = sum(1 for p, t in zip(hourly_predictions[sym], hourly_true_classes[sym]) if p == t)
+                                pred_accuracy = 100.0 * pred_correct / pred_total if pred_total > 0 else 0.0
+
+                                pred_log.info(
+                                    f"HOURLY_SUMMARY {sym} hour={current_hour} | "
+                                    f"features_first_mean={first_mean} std={first_std} min={first_min} max={first_max} | "
+                                    f"features_last_mean={last_mean} std={last_std} min={last_min} max={last_max} | "
+                                    f"predictions_total={pred_total} correct={pred_correct} accuracy={pred_accuracy:.2f}%"
+                                )
+
+                                # Reset hourly accumulators
+                                hourly_features_first[sym].clear()
+                                hourly_features_last[sym].clear()
+                                hourly_predictions[sym].clear()
+                                hourly_true_classes[sym].clear()
+                        current_hour = new_hour
+
                 last_status = now
 
+    async def checkpoint_models(force: bool = False) -> None:
+        nonlocal last_checkpoint
+        if not online_learning:
+            return
+        now = asyncio.get_running_loop().time()
+        if not force and (now - last_checkpoint) < float(checkpoint_sec):
+            return
+        for sym, model in online_models.items():
+            path = model_dir / f"{sym.lower()}_online_l2.pkl"
+            joblib.dump(model.to_state(), path)
+        last_checkpoint = now
+
     try:
-        ws_task = asyncio.create_task(ws_loop(), name="ws_loop")
+        ws_task = asyncio.create_task(ws_loop(bm, client), name="ws_loop")
         snap_task = asyncio.create_task(snapshot_loop(), name="snapshot_loop")
         await asyncio.gather(ws_task, snap_task)
     finally:
