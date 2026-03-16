@@ -21,7 +21,7 @@ class TestFeatures(unittest.TestCase):
         }
         x = snapshot_to_feature_vector(snap, depth=2)
         self.assertIsInstance(x, np.ndarray)
-        self.assertEqual(x.shape, (8,))
+        self.assertEqual(x.shape, (9,))
 
 
 if __name__ == "__main__":

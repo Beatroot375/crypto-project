@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
-from pathlib import Path
 import math
-import numpy as np
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import datetime
+from pathlib import Path
+
+import numpy as np
+
+from .aggtrades import AggTradeWindow
+from .features import snapshot_to_feature_vector
+from .online import OnlineL2Model
+from .orderbook import MultiAssetOrderBook
+from .storage import DailyPerSymbolGzipJsonlWriter
 
 log = logging.getLogger(__name__)
 
@@ -17,14 +24,6 @@ pred_log.setLevel(logging.INFO)
 pred_handler = logging.FileHandler('predictions.log')
 pred_handler.setFormatter(logging.Formatter('%(asctime)s | %(message)s'))
 pred_log.addHandler(pred_handler)
-
-from .aggtrades import AggTradeWindow
-from .features import snapshot_to_feature_vector
-from .online import OnlineL2Model
-from .orderbook import MultiAssetOrderBook
-from .storage import DailyPerSymbolGzipJsonlWriter
-
-log = logging.getLogger(__name__)
 
 
 async def sync_with_snapshot(client, books: MultiAssetOrderBook, symbol: str, depth: int) -> None:
@@ -214,7 +213,8 @@ async def collect_binance_depth_ws(
 
                 # Initialize current_hour on first snapshot
                 if current_hour == "":
-                    current_hour = datetime.fromtimestamp(snap["ts_ns"] / 1_000_000_000).strftime("%Y-%m-%d-%H")
+                    ts = snap["ts_ns"] / 1_000_000_000
+                    current_hour = datetime.fromtimestamp(ts).strftime("%Y-%m-%d-%H")
 
                 if aggtrades and sym in agg_windows:
                     snap.update(agg_windows[sym].stats(int(snap["ts_ns"])))
@@ -238,7 +238,13 @@ async def collect_binance_depth_ws(
                     hourly_features_last[sym].append(x[-5:].tolist())
                     hourly_predictions[sym].append(pred_class)
                     if online_eval and sym in eval_total and not math.isnan(last_mid[sym]):
-                        true_change = 1 if snap["mid"] > last_mid[sym] else (-1 if snap["mid"] < last_mid[sym] else 0)
+                        mid = snap["mid"]
+                        if mid > last_mid[sym]:
+                            true_change = 1
+                        elif mid < last_mid[sym]:
+                            true_change = -1
+                        else:
+                            true_change = 0
                         hourly_true_classes[sym].append(true_change)
                         eval_total[sym] += 1
                         if true_change == pred_class:
@@ -283,6 +289,11 @@ async def collect_binance_depth_ws(
                     )
                     if online_eval and sym in eval_total and eval_total[sym] > 0:
                         accuracy = 100.0 * eval_correct[sym] / eval_total[sym]
+                        last_pred = (
+                            last_snap["online_pred_class"]
+                            if last_snap and "online_pred_class" in last_snap
+                            else 0
+                        )
                         log.info(
                             "Eval %s | total=%d correct=%d accuracy=%.2f%% | last_true=%.2f last_pred=%d",
                             sym,
@@ -290,12 +301,13 @@ async def collect_binance_depth_ws(
                             eval_correct[sym],
                             accuracy,
                             last_mid[sym],
-                            last_snap["online_pred_class"] if last_snap and "online_pred_class" in last_snap else 0,
+                            last_pred,
                         )
 
                 # Check for hour change and log summary (moved here from per-snapshot to status interval)
                 if last_snap:
-                    current_ts = datetime.fromtimestamp(last_snap["ts_ns"] / 1_000_000_000)
+                    ts = last_snap["ts_ns"] / 1_000_000_000
+                    current_ts = datetime.fromtimestamp(ts)
                     new_hour = current_ts.strftime("%Y-%m-%d-%H")
                     if new_hour != current_hour and current_hour != "":
                         for sym in sym_list:
@@ -314,7 +326,7 @@ async def collect_binance_depth_ws(
 
                                 # Compute prediction stats
                                 pred_total = len(hourly_predictions[sym])
-                                pred_correct = sum(1 for p, t in zip(hourly_predictions[sym], hourly_true_classes[sym]) if p == t)
+                                pred_correct = sum(1 for p, t in zip(hourly_predictions[sym], hourly_true_classes[sym], strict=False) if p == t)
                                 pred_accuracy = 100.0 * pred_correct / pred_total if pred_total > 0 else 0.0
 
                                 pred_log.info(

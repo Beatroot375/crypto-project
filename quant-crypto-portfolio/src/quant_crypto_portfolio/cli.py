@@ -6,6 +6,8 @@ import logging
 from argparse import ArgumentParser
 from pathlib import Path
 
+import numpy as np
+
 from .collector_binance_ws import collect_binance_depth_ws
 from .data_io import load_dataset
 from .drift import feature_drift_report

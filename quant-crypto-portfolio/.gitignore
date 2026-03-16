@@ -12,6 +12,7 @@ venv/
 dist/
 build/
 *.egg-info/
+*.log
 
 # Virtual environments
 venv/
